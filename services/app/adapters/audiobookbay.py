@@ -445,10 +445,14 @@ class ABBClient:
                         else None,
                     )
                 if 300 <= response.status_code < 400:
-                    raise AdapterError(
+                    error = AdapterError(
                         FailureKind.ROUTE,
                         "AudiobookBay redirected the request. Configure its final site origin.",
                     )
+                    # Capitalized searches are often sent back to the homepage
+                    # while the configured origin is already correct.
+                    error.homepage = self._homepage_redirect(response.headers.get("location", ""))
+                    raise error
                 if response.status_code != 200:
                     raise AdapterError(
                         FailureKind.UNAVAILABLE, "AudiobookBay could not complete the request."
@@ -480,12 +484,37 @@ class ABBClient:
             raise AdapterError(FailureKind.PARSER, "AudiobookBay site layout was not recognized.")
         return True
 
+    def _homepage_redirect(self, location):
+        if not location:
+            return False
+        target = urlsplit(urljoin(self.base_url + "/", location.strip()))
+        origin = urlsplit(self.base_url)
+        return (
+            target.scheme == origin.scheme
+            and target.netloc.lower() == origin.netloc.lower()
+            and target.path in {"", "/"}
+            and not target.query
+            and not target.fragment
+        )
+
     async def search(self, query):
         await self.request("/")  # Some hosts initialize a public session cookie here.
-        html = await self.request(
-            "/" if query.page == 1 else f"/page/{query.page}/", {"s": query.q, "cat": "undefined"}
-        )
-        return parse_search(html, self.base_url, query.page)
+        path = "/" if query.page == 1 else f"/page/{query.page}/"
+        queries = [query.q]
+        folded = query.q.casefold()
+        if folded != query.q:
+            queries.append(folded)
+        last = None
+        for term in queries:
+            try:
+                html = await self.request(path, {"s": term, "cat": "undefined"})
+            except AdapterError as error:
+                last = error
+                if error.kind != FailureKind.ROUTE or not getattr(error, "homepage", False):
+                    raise
+                continue
+            return parse_search(html, self.base_url, query.page)
+        raise last
 
     async def detail(self, path):
         path = detail_path(path, self.base_url)

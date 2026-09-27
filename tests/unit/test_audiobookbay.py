@@ -145,6 +145,43 @@ def test_sizes_are_bounded_and_unknown_is_not_zero(value, expected):
     assert size(value) == expected
 
 
+async def test_capitalized_homepage_redirect_retries_the_lowercase_search():
+    queries = []
+
+    async def handler(request):
+        if not request.url.query:
+            return httpx.Response(200, text=search(), headers={"content-type": "text/html"})
+        queries.append(request.url.params["s"])
+        if request.url.params["s"] != request.url.params["s"].casefold():
+            return httpx.Response(301, headers={"location": ORIGIN + "/"})
+        return httpx.Response(200, text=search(), headers={"content-type": "text/html"})
+
+    async with ABBClient(
+        ORIGIN, transport=httpx.MockTransport(handler), request_interval=0
+    ) as client:
+        page = await client.search(ABBSearch(q="Harbor Lights"))
+    assert queries == ["Harbor Lights", "harbor lights"]
+    assert page.items[0].title == "Harbor"
+
+
+async def test_redirect_to_another_host_is_not_retried_in_lowercase():
+    calls = []
+
+    async def handler(request):
+        calls.append(request.url.path)
+        if not request.url.query:
+            return httpx.Response(200, text=search(), headers={"content-type": "text/html"})
+        return httpx.Response(302, headers={"location": "http://127.0.0.1/private"})
+
+    async with ABBClient(
+        ORIGIN, transport=httpx.MockTransport(handler), request_interval=0
+    ) as client:
+        with pytest.raises(AdapterError) as error:
+            await client.search(ABBSearch(q="Harbor Lights"))
+    assert error.value.kind == FailureKind.ROUTE
+    assert calls == ["/", "/"]
+
+
 async def test_bounded_client_initializes_session_and_uses_search_page_contract():
     requests = []
 
