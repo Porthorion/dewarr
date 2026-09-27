@@ -89,12 +89,13 @@ async def identity(db, work):
 def same_identity(current, stored):
     """Series membership is part of the snapshot once a search has stored it.
 
-    A search saved before that field existed still matches a book with no series.
+    An empty list means the series catalog had not arrived yet. Filling it in
+    does not make this a different book. A different non-empty list does.
     """
     if not isinstance(stored, dict):
         return False
-    if "series" not in stored and not current.get("series"):
-        stored = {**stored, "series": []}
+    if not stored.get("series"):
+        stored = {**stored, "series": current.get("series") or []}
     return current == stored
 
 
@@ -293,7 +294,13 @@ async def checked(db, identifier, user_id=None):
     if not user or not user.active:
         raise HTTPException(401, "This search account is no longer active")
     work = await accessible_work(db, user, UUID(operation.payload["work"]["id"]))
-    changed = not same_identity(await identity(db, work), operation.payload["work"])
+    current = await identity(db, work)
+    stored = operation.payload.get("work") or {}
+    if isinstance(stored, dict) and not stored.get("series") and current.get("series"):
+        payload = deepcopy(operation.payload)
+        payload["work"] = {**stored, "series": current["series"]}
+        operation.payload = payload
+    changed = not same_identity(current, operation.payload["work"])
     preparation = operation.payload.get("catalog_preparation")
     if "query_plan" in operation.payload and not (
         preparation and preparation["state"] in series_preparation.ACTIVE

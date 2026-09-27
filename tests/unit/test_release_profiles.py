@@ -103,10 +103,12 @@ def test_saved_search_without_series_still_matches_a_book_that_has_none():
     from app.domain.book_sources import same_identity
 
     current = {"id": "1", "title": "Lantern", "authors": ["Writer"], "series": []}
+    arrived = {**current, "series": [{"name": "North Sea", "position": "5"}]}
     assert same_identity(current, {"id": "1", "title": "Lantern", "authors": ["Writer"]})
+    assert same_identity(arrived, {"id": "1", "title": "Lantern", "authors": ["Writer"]})
+    assert same_identity(arrived, current)
     assert not same_identity(
-        {**current, "series": [{"name": "North Sea", "position": "5"}]},
-        {"id": "1", "title": "Lantern", "authors": ["Writer"]},
+        arrived, {**current, "series": [{"name": "North Sea", "position": "4"}]}
     )
 
 
