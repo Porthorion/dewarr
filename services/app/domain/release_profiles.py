@@ -369,6 +369,62 @@ def release_labels(value):
     return parse_title_labels(value).title, part, dramatized
 
 
+_SERIES_NOTE_WORDS = {
+    "a",
+    "an",
+    "the",
+    "trilogy",
+    "duology",
+    "quartet",
+    "saga",
+    "series",
+    "cycle",
+    "book",
+    "volume",
+    "vol",
+    "part",
+}
+_DISTINCT_SERIES_NOTE = re.compile(
+    r"\b(?:study guide|summary|workbook|companion|omnibus|box ?set|graphic novel)\b",
+    re.I,
+)
+_COLLECTION_SERIES_NOTE = re.compile(
+    r"\b(?:books?|volumes?|vols?\.?|parts?)\s+\d+\s*[-–]\s*\d+\b|\b\d+\s+of\s+\d+\b",
+    re.I,
+)
+
+
+def _title_outside_series_note(head, work):
+    """Return the catalog title when parentheses only name one of its series.
+
+    "Lantern (The North Sea Trilogy)" is still Lantern. A study guide, a
+    multi-book collection, or a note that does not name a catalog series is not.
+    """
+    match = re.fullmatch(r"(.+?)\s*\(([^()]+)\)\s*", head.strip())
+    if not match:
+        return None
+    book, note = match.group(1).strip(), match.group(2).strip()
+    if not book or _DISTINCT_SERIES_NOTE.search(note) or _COLLECTION_SERIES_NOTE.search(note):
+        return None
+    note_key = normalized(re.sub(r"[,:;]", " ", note))
+    for entry in work.get("series") or []:
+        if not isinstance(entry, dict):
+            continue
+        name = normalized(entry.get("name", ""))
+        if not name:
+            continue
+        found = re.search(rf"(?:^| ){re.escape(name)}(?: |$)", note_key)
+        if not found:
+            continue
+        remainder = f"{note_key[: found.start()]} {note_key[found.end() :]}"
+        if all(
+            word in _SERIES_NOTE_WORDS or word.isdigit() or re.fullmatch(r"#\d+", word)
+            for word in remainder.split()
+        ):
+            return book
+    return None
+
+
 def identifier_values(value):
     """ISBN-10, ISBN-13 and ASIN values in a free-form identifier field."""
     compact = re.sub(r"[\s-]", "", str(value or "")).upper()
@@ -423,7 +479,12 @@ def indexer_title_authors(release, work):
         head, separator, tail = title.partition(" - ")
         if separator:
             credit = normalized(tail.split(",")[0])
-            if credit in authors and normalized(head) in expected_titles:
+            bare = _title_outside_series_note(head, work)
+            full_title = normalized(parse_title_labels(work["title"]).title)
+            if credit in authors and (
+                normalized(head) in expected_titles
+                or (bare is not None and full_title and normalized(bare) == full_title)
+            ):
                 matched.add(authors[credit])
     # "Series 5 - Author" omits the catalog subtitle. Accept it only when that
     # series and position are already on the work and the first credit matches.

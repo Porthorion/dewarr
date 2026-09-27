@@ -97,6 +97,46 @@ def test_audiobookbay_credit_and_series_position_can_corroborate_identity():
         assess_release(posting("Other Coast 5 - Writer"), work, preferences).identity
         != "corroborated"
     )
+    assert (
+        assess_release(
+            posting("Lantern (The North Sea Trilogy) - Writer, Reader"), work, preferences
+        ).identity
+        == "corroborated"
+    )
+    assert (
+        assess_release(posting("Lantern (North Sea, Book 5) - Writer"), work, preferences).identity
+        == "corroborated"
+    )
+    assert (
+        assess_release(
+            posting("Other Book (The North Sea Trilogy) - Writer"), work, preferences
+        ).identity
+        != "corroborated"
+    )
+    assert (
+        assess_release(posting("Lantern (A Study Guide) - Writer"), work, preferences).identity
+        != "corroborated"
+    )
+    assert (
+        assess_release(
+            posting("Lantern (Other Coast Trilogy) - Writer"), work, preferences
+        ).identity
+        != "corroborated"
+    )
+    assert (
+        assess_release(
+            posting("Lantern (North Sea Books 1-3) - Writer"), work, preferences
+        ).identity
+        != "corroborated"
+    )
+    assert (
+        assess_release(
+            posting("Lantern (The North Sea Trilogy) - Writer"),
+            {"title": "Lantern", "authors": ["Writer"]},
+            preferences,
+        ).identity
+        != "corroborated"
+    )
 
 
 def test_saved_search_without_series_still_matches_a_book_that_has_none():
