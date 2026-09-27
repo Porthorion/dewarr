@@ -384,7 +384,7 @@ def indexer_title_authors(release, work):
     the complete pair. Extra titles, archive/repair filenames, partial releases
     and conflicting structured authors still require review.
     """
-    if release.source != "prowlarr" or release.authors:
+    if release.source not in {"prowlarr", "audiobookbay"} or release.authors:
         return []
     title = re.sub(
         r"\[(?:m4b|mp3|epub|pdf|flac|aac|ogg|opus|azw3|mobi)\]",
@@ -417,6 +417,32 @@ def indexer_title_authors(release, work):
                 # is never stripped away. Unknown suffixes still need review.
                 if re.fullmatch(rf"{re.escape(pair)}(?: (?:19|20)\d{{2}})?(?: retail)?", actual):
                     matched.add(authors[author])
+    # AudiobookBay names, including Prowlarr's copy of them, are
+    # "Title - Author, Narrator". The catalog author is the first credit.
+    if not matched:
+        head, separator, tail = title.partition(" - ")
+        if separator:
+            credit = normalized(tail.split(",")[0])
+            if credit in authors and normalized(head) in expected_titles:
+                matched.add(authors[credit])
+    # "Series 5 - Author" omits the catalog subtitle. Accept it only when that
+    # series and position are already on the work and the first credit matches.
+    if not matched:
+        labels = parse_title_labels(title)
+        credit = normalized((labels.series_title or "").split(",")[0])
+        position = str(labels.sequence or "").split(".", 1)[0]
+        if (
+            labels.series
+            and position
+            and credit in authors
+            and any(
+                normalized(entry.get("name", "")) == normalized(labels.series)
+                and str(entry.get("position") or "").split(".", 1)[0] == position
+                for entry in work.get("series") or []
+                if isinstance(entry, dict)
+            )
+        ):
+            matched.add(authors[credit])
     return sorted(matched)
 
 

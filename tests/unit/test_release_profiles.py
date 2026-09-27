@@ -63,6 +63,53 @@ def test_indexer_exact_author_title_pair_can_replace_missing_structured_fields(
     assert assessment.identity == expected
 
 
+def test_audiobookbay_credit_and_series_position_can_corroborate_identity():
+    from app.adapters.audiobookbay import ABBRelease
+
+    work = {
+        "title": "Lantern",
+        "authors": ["Writer"],
+        "series": [{"name": "North Sea", "position": "5"}],
+    }
+
+    def posting(title):
+        return ABBRelease(
+            source_id="fixture",
+            title=title,
+            raw_title=title,
+            detail_path="/abss/example/",
+            observed_at=datetime.now(UTC),
+        )
+
+    preferences = ReleasePreferences()
+    assert assess_release(posting("Lantern - Writer, Reader"), work, preferences).identity == (
+        "corroborated"
+    )
+    assert (
+        assess_release(posting("North Sea 5 - Writer, Reader"), work, preferences).identity
+        == "corroborated"
+    )
+    assert (
+        assess_release(posting("North Sea 4 - Writer, Reader"), work, preferences).identity
+        != "corroborated"
+    )
+    assert (
+        assess_release(posting("Other Coast 5 - Writer"), work, preferences).identity
+        != "corroborated"
+    )
+
+
+def test_saved_search_without_series_still_matches_a_book_that_has_none():
+    from app.domain.book_sources import same_identity
+
+    current = {"id": "1", "title": "Lantern", "authors": ["Writer"], "series": []}
+    assert same_identity(current, {"id": "1", "title": "Lantern", "authors": ["Writer"]})
+    assert not same_identity(
+        {**current, "series": [{"name": "North Sea", "position": "5"}]},
+        {"id": "1", "title": "Lantern", "authors": ["Writer"]},
+    )
+
+
 def test_builtin_ebook_format_preference_order():
     assert ReleasePreferences().ebook_formats == [
         "epub",

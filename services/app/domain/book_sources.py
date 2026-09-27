@@ -14,7 +14,16 @@ from app.adapters.mam import MAMSearch
 from app.adapters.prowlarr import ProwlarrSearch
 from app.adapters.source_releases import SOURCE_NAMES
 from app.config import get_settings
-from app.db.models import Operation, SourceArtifact, SourceConnection, SourceResult, User, Work
+from app.db.models import (
+    CatalogSeries,
+    Operation,
+    SeriesMembership,
+    SourceArtifact,
+    SourceConnection,
+    SourceResult,
+    User,
+    Work,
+)
 from app.db.session import session_factory
 from app.domain import series_preparation, source_queries
 from app.domain.audiobookbay_network import abb_call
@@ -55,8 +64,38 @@ async def accessible_work(db, user, identifier):
     return work
 
 
-def identity(work):
-    return {"id": str(work.id), "title": work.title, "authors": work.authors}
+async def identity(db, work):
+    rows = (
+        await db.execute(
+            select(CatalogSeries.name, SeriesMembership.snapshot)
+            .join(SeriesMembership, SeriesMembership.series_id == CatalogSeries.id)
+            .where(SeriesMembership.work_id == work.id, SeriesMembership.present.is_(True))
+        )
+    ).all()
+    series = []
+    for name, snapshot in rows:
+        position = str(snapshot.get("position") or "").strip() if isinstance(snapshot, dict) else ""
+        if name and position:
+            series.append({"name": name, "position": position})
+    series.sort(key=lambda item: (item["name"].casefold(), item["position"]))
+    return {
+        "id": str(work.id),
+        "title": work.title,
+        "authors": work.authors,
+        "series": series,
+    }
+
+
+def same_identity(current, stored):
+    """Series membership is part of the snapshot once a search has stored it.
+
+    A search saved before that field existed still matches a book with no series.
+    """
+    if not isinstance(stored, dict):
+        return False
+    if "series" not in stored and not current.get("series"):
+        stored = {**stored, "series": []}
+    return current == stored
 
 
 async def start(db, user, work_id, body, key, *, pack_origin=None, only_sources=None):
@@ -104,7 +143,7 @@ async def start(db, user, work_id, body, key, *, pack_origin=None, only_sources=
             message="Using the original selected pack; no new source query",
             payload={
                 "command": command,
-                "work": identity(work),
+                "work": await identity(db, work),
                 "query": query,
                 "identifiers": identifiers,
                 "query_plan": query_plan,
@@ -172,7 +211,7 @@ async def start(db, user, work_id, body, key, *, pack_origin=None, only_sources=
         idempotency_key=key,
         payload={
             "command": command,
-            "work": identity(work),
+            "work": await identity(db, work),
             "query": query,
             "identifiers": identifiers,
             "query_plan": query_plan,
@@ -254,7 +293,7 @@ async def checked(db, identifier, user_id=None):
     if not user or not user.active:
         raise HTTPException(401, "This search account is no longer active")
     work = await accessible_work(db, user, UUID(operation.payload["work"]["id"]))
-    changed = identity(work) != operation.payload["work"]
+    changed = not same_identity(await identity(db, work), operation.payload["work"])
     preparation = operation.payload.get("catalog_preparation")
     if "query_plan" in operation.payload and not (
         preparation and preparation["state"] in series_preparation.ACTIVE
