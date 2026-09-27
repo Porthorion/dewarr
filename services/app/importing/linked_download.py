@@ -16,11 +16,35 @@ def agrees_with_request(work, release, facts):
     title = display_title(work.title)
     titles = {title, display_title(optional_subtitle_base(work.title))}
     authors = sorted(normalized(name) for name in work.authors)
-    if not title or not authors or display_title(release.get("title", "")) not in titles:
+    catalog_authors = set(authors)
+    release_title = release.get("title", "")
+    shown = display_title(release_title)
+    head, separator, tail = release_title.partition(" - ")
+    credit = normalized(tail.split(",")[0]) if separator else ""
+    # The file may keep a series label after the catalog title, and an extra
+    # co-author. That is not a different book. A different subtitle still is.
+    file_title_exact = bool(facts.titles) and all(
+        display_title(value) in titles for value in facts.titles
+    )
+    file_title_leading = bool(facts.titles) and all(
+        display_title(value).split(":", 1)[0].strip() == title for value in facts.titles
+    )
+    file_authors_cover = bool(facts.authors) and all(
+        catalog_authors <= set(value) for value in facts.authors
+    )
+    title_agrees = (
+        shown in titles
+        or (bool(separator) and display_title(head) in titles and credit in catalog_authors)
+        or (file_title_leading and file_authors_cover and credit in catalog_authors)
+    )
+    if not title or not authors or not title_agrees:
         return False
-    if any(display_title(value) not in titles for value in facts.titles):
+    if facts.titles and not (file_title_exact or file_title_leading):
         return False
-    if any(value != authors for value in facts.authors):
+    if any(
+        value != authors and not (file_title_leading and catalog_authors <= set(value))
+        for value in facts.authors
+    ):
         return False
     release_authors = sorted(normalized(name) for name in release.get("authors", []))
     if release_authors and release_authors != authors:

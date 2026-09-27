@@ -60,3 +60,24 @@ def test_linked_download_accepts_omitted_subtitle_but_not_conflicting_content(
         agrees_with_request(work, {"title": release_title, "authors": work.authors}, facts)
         is expected
     )
+
+
+def test_audiobookbay_credit_and_leading_file_title_can_link_the_download():
+    work = SimpleNamespace(title="Lantern", authors=["Writer"], language="en", metadata_fields={})
+    facts = MatchEvidence(
+        titles=["Lantern: North Sea, Book 5"],
+        authors=[["reader", "writer"]],
+    )
+    assert agrees_with_request(
+        work, {"title": "North Sea 5 - Writer, Reader", "authors": []}, facts
+    )
+    assert agrees_with_request(
+        work,
+        {"title": "Lantern - Writer, Reader", "authors": ["Writer"]},
+        MatchEvidence(titles=["Lantern"], authors=[["writer"]]),
+    )
+    assert not agrees_with_request(
+        work,
+        {"title": "North Sea 5 - Writer, Reader", "authors": []},
+        MatchEvidence(titles=["Other Book: North Sea, Book 5"], authors=[["reader", "writer"]]),
+    )
